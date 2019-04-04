@@ -106,5 +106,5 @@ class DataSet(object):
         # labels is x vector move one position to the right
         ydata = np.copy(xdata)
         ydata[:,:-1] = xdata[:, 1:]
-        return xdata[:,:-1] , ydata[:,:-1]
+        return xdata , ydata
 

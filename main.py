@@ -1,3 +1,4 @@
+#-*- coding: UTF-8 -*-
 import argparse
 import time
 import math
@@ -26,14 +27,16 @@ parser.add_argument('--ksize', type=int, default=2,
                     help='kernel size (default: 2)')
 parser.add_argument('--emsize', type=int, default=256,
                     help='size of word embeddings')
-parser.add_argument('--levels', type=int, default=6,
-                    help='# of levels (default: 4)')
-parser.add_argument('--lr', type=float, default=2e-4,
-                    help='initial learning rate (default: 4)')
+parser.add_argument('--levels', type=int, default=4,
+                    help='# of levels (default: 8)')
+parser.add_argument('--lr', type=float, default=1e-3,
+                    help='initial learning rate (default: 1e-3)')
 parser.add_argument('--test', type=bool, default=False,
                     help='train or test (default: False)')
 parser.add_argument('--n', type=int, default=1,
-                    help='')
+                    help='generate the count of poems (default: 1)')
+parser.add_argument('--startwords', type=str, nargs="+", default=None,
+                    help='Tibetan poetry (default: None)')
 args = parser.parse_args()
 
 #set the channel of Multi-layer residual network
@@ -47,7 +50,9 @@ dataSet = DataSet(len(poetrys_vector))
 
 net = TCN(args.emsize,n_words,num_channels)
 if args.cuda:
+    net = nn.DataParallel(net)
     net.cuda()
+    print('using gpu #', torch.cuda.current_device())
 
 
 def train():
@@ -55,7 +60,7 @@ def train():
         with open("model/model.pt", 'rb') as f:
             global net
             net = torch.load(f)
-            print('load net')
+            print('load net,continue train')
     except:
         pass
     running_loss = []
@@ -65,8 +70,12 @@ def train():
         running_loss_tmp =0
         for step in range(n_chunk):
             x, y = dataSet.next_batch(batch_size)
-            x = Variable(torch.from_numpy(x)).long()
-            y= Variable(torch.from_numpy(y)).long()
+            if args.cuda:
+                x = Variable(torch.from_numpy(x)).long().cuda()
+                y = Variable(torch.from_numpy(y)).long().cuda()
+            else:
+                x = Variable(torch.from_numpy(x)).long()
+                y= Variable(torch.from_numpy(y)).long()
             output= net(x)
             output = output.contiguous().view(-1, n_words)
 
@@ -75,14 +84,13 @@ def train():
             # print(y)
             optimizer.zero_grad()
             loss = criterion(output, y)
-            print(loss)
             loss.backward()
             optimizer.step()
             running_loss_tmp += loss.data
         with open("model/model.pt", 'wb') as f:
             print('Save model!\n')
             torch.save(net, f)
-        print('epoch', epoch, ':loss is', running_loss_tmp)
+        print('epoch', epoch, ':loss is', running_loss_tmp/n_chunk)
         running_loss.append(running_loss_tmp)
     print('training finished', ':loss is', np.mean(running_loss))
 
@@ -110,7 +118,10 @@ def test(n,startword = None):
         else:
             # Randomly obtain one of the 100 words with the highest probability
             x = np.array([list(map(word_num_map.get, '['))])
-            x = Variable(torch.from_numpy(x)).long()
+            if args.cuda:
+                x = Variable(torch.from_numpy(x)).long().cuda()
+            else:
+                x = Variable(torch.from_numpy(x)).long()
             output = net(x)
             word = to_word(output, 100)
         x = [2]
@@ -126,10 +137,13 @@ def test(n,startword = None):
             poem += word
             x.append(word_num_map[poem[-1]])
             input = np.reshape(x, [1, -1])
-            input = Variable(torch.from_numpy(input)).long()
+            if args.cuda:
+                input = Variable(torch.from_numpy(input)).long().cuda()
+            else:
+                input = Variable(torch.from_numpy(input)).long()
             output = net(input)
             # Randomly obtain one of the n words with the highest probability
-            word = to_word(output, 10)
+            word = to_word(output, 5)
         return poem
     poems = []
     for i in range(n):
@@ -142,11 +156,14 @@ def test(n,startword = None):
 
 if __name__ == "__main__":
     if args.test:
-        for poem in test(10):
-            print(poem)
-        # Tibetan poetry 藏头诗
-        # for poem in test(10,startword = ['李', '子', '娇']):
-        #     print(poem)
+        if args.startwords:
+ #           Tibetan poetry 藏头诗 such as ****** python main.py --test=True --startwords 一 二 三
+            for poem in test(args.n, startword=args.startwords):
+                print(poem)
+        else:
+            for poem in test(args.n):
+                print(poem)
+
     else:
         train()
 
