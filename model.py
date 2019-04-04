@@ -11,14 +11,16 @@ class Chomp1d(nn.Module):
         self.chomp_size = chomp_size
 
     def forward(self, x):
+        #The contiguous() function turns tensor into a continuous distribution in memory.
         return x[:, :, :-self.chomp_size].contiguous()
 
-
+#Residual convolution
 class TemporalBlock(nn.Module):
     def __init__(self, n_inputs, n_outputs, kernel_size, stride, dilation, padding, dropout=0.2):
         super(TemporalBlock, self).__init__()
         self.conv1 = weight_norm(nn.Conv1d(n_inputs, n_outputs, kernel_size,
                                            stride=stride, padding=padding, dilation=dilation))
+        # move padding
         self.chomp1 = Chomp1d(padding)
         self.relu1 = nn.ReLU()
         self.dropout1 = nn.Dropout(dropout)
@@ -46,6 +48,7 @@ class TemporalBlock(nn.Module):
         res = x if self.downsample is None else self.downsample(x)
         return self.relu(out + res)
 
+#define Multi-layer residual network
 class TemporalConvNet(nn.Module):
     def __init__(self, num_inputs, num_channels, kernel_size=2, dropout=0.2,d_size=2):
         super(TemporalConvNet, self).__init__()
@@ -68,9 +71,11 @@ class TCN(nn.Module):
     def __init__(self, input_size, output_size, num_channels,
                  kernel_size=2, dropout=0.2, emb_dropout=0.1, tied_weights=False):
         super(TCN, self).__init__()
+        # word embedding
         self.encoder = nn.Embedding(output_size, input_size)
+        # input to Multi-layer residual network
         self.tcn = TemporalConvNet(input_size, num_channels, kernel_size, dropout=dropout)
-
+        # deconder to word
         self.decoder = nn.Linear(num_channels[-1], output_size)
         if tied_weights:
             if num_channels[-1] != input_size:
@@ -87,7 +92,6 @@ class TCN(nn.Module):
         self.decoder.weight.data.normal_(0, 0.01)
 
     def forward(self, input):
-        """Input ought to have dimension (N, C_in, L_in), where L_in is the seq_len; here the input is (N, L, C)"""
         emb = self.drop(self.encoder(input))
         y = self.tcn(emb.transpose(1, 2)).transpose(1, 2)
         y = self.decoder(y)
